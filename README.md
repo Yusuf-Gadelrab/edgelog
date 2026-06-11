@@ -28,12 +28,15 @@ date,symbol,setup,direction,entry,stop,target,exit,shares,fees,notes
 FastAPI + SQLite + a single-file vanilla JS dashboard (SVG equity curve, no chart library).
 Fully local: your trade history never leaves your machine.
 
-## Tests
+## Robinhood sync (experimental)
+Sync your filled stock orders from Robinhood:
 ```bash
-uv run pytest tests/
+uv run python robinhood_sync.py  # authenticate in terminal first
 ```
-
-Not financial advice. Analytics on your own executed trades only.
+Sync is read-only and idempotent (dedupes via order ID). Setup requires `RH_USERNAME` and `RH_PASSWORD` in `EdgeLog/app/.env` (gitignored).
+"""
+Robinhood fills do not have setup/stop data; they appear as 'rh-sync' setup trades. Stats analytics tolerate these stopless rows.
+"""
 
 ## License
 © 2026 Yusuf Gadelrab. All rights reserved. Source is public for portfolio and evaluation

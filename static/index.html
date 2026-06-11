@@ -113,7 +113,18 @@ td.pos { color:var(--green); } td.neg { color:var(--red); }
   </div>
 
   <div id="dash" style="display:none">
-    <div class="card" id="verdict"><div class="lbl">the verdict</div><div id="verdict-text"></div></div>
+    <div class="card" id="verdict">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+        <div>
+          <div class="lbl">the verdict</div>
+          <div id="verdict-text"></div>
+        </div>
+        <button class="btn" id="ai-review-btn" onclick="runAiReview()" style="color:var(--violet); border-color:var(--violet); flex-shrink:0; margin-left:14px;">
+          ✨ AI Review
+        </button>
+      </div>
+      <div id="ai-review-panel" style="display:none; margin-top:14px; padding-top:14px; border-top:1px solid var(--line); font-size:13px; color:var(--text); white-space:pre-wrap; line-height:1.6;"></div>
+    </div>
 
     <div class="grid g-stats">
       <div class="card stat delay1"><div class="lbl">Expectancy</div><div class="val" id="exp"></div><div class="note">R per trade</div></div>
@@ -243,6 +254,43 @@ function typeVerdict(text) {
     el.textContent = text.slice(0, ++i);
     if (i >= text.length) { clearInterval(typeTimer); el.classList.add('typed'); }
   }, 14);
+}
+
+async function runAiReview() {
+  const btn = $('ai-review-btn');
+  const panel = $('ai-review-panel');
+  const originalText = btn.innerHTML;
+  
+  btn.innerHTML = '✨ Waking up local model...';
+  btn.disabled = true;
+  panel.style.display = 'block';
+  panel.innerHTML = '<span class="cursor"></span>';
+  
+  try {
+    const response = await fetch('/api/coach', { method: 'POST' });
+    if (!response.ok) {
+      const err = await response.text();
+      throw new Error(err || response.statusText);
+    }
+    
+    btn.innerHTML = '✨ Analyzing...';
+    panel.innerHTML = '';
+    
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value, { stream: true });
+      panel.innerHTML += chunk;
+    }
+  } catch (e) {
+    panel.innerHTML = `<span style="color:var(--red)">Failed to get AI review: ${e.message}</span>`;
+  } finally {
+    btn.innerHTML = originalText;
+    btn.disabled = false;
+  }
 }
 
 async function load() {

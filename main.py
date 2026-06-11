@@ -14,12 +14,21 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 
 DB_PATH = Path(__file__).parent / "edgelog.db"
 STATIC = Path(__file__).parent / "static"
 
 app = FastAPI(title="EdgeLog")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # Allow Next.js local dev
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 FIELDS = ["date", "symbol", "setup", "direction", "entry", "stop",
           "target", "exit", "shares", "fees", "notes"]
@@ -216,10 +225,83 @@ def export_csv():
 def trigger_robinhood_sync():
     try:
         from robinhood_sync import sync_robinhood
-        res = sync_robinhood(interactive=False)
+        return sync_robinhood(interactive=False)
+    except Exception as e:
+        raise HTTPException(500, f"Robinhood sync failed: {str(e)}. "
+                                 "If this is an auth error, please run 'uv run python robinhood_sync.py' "
+                                 "in your terminal to authenticate first.")
+
+@app.post("/api/sync/alpaca")
+def trigger_alpaca_sync():
+    try:
+        from alpaca_sync import sync_alpaca
+        res = sync_alpaca(interactive=False)
         return res
     except Exception as e:
-        raise HTTPException(500, f"Robinhood sync failed: {str(e)}")
+        raise HTTPException(500, f"Alpaca sync failed: {str(e)}")
+
+@app.post("/api/backtest/run")
+def api_backtest_run(payload: dict):
+    try:
+        from engine.vbt_runner import run_backtest
+        symbol = payload.get("symbol", "SPY")
+        strategy = payload.get("strategy", "RSI_DIVERGENCE")
+        params = payload.get("params", {})
+        res = run_backtest(symbol, strategy, params)
+        return res
+    except Exception as e:
+        raise HTTPException(500, f"Backtest failed: {str(e)}")
+
+
+@app.post("/api/coach")
+async def ai_coach():
+    s = stats()
+    if not s.get("trades"):
+        raise HTTPException(400, "No trades to review.")
+    
+    trades = list_trades()
+    recent = trades[-30:]
+    
+    expectancy = s.get("expectancy_r")
+    win_rate = s.get("win_rate")
+    profit_factor = s.get("profit_factor")
+    
+    discipline = s.get("discipline", {})
+    adherence = discipline.get("adherence_pct", "N/A")
+    cost = discipline.get("cost_of_breaking_r", "N/A")
+    broken_trades = discipline.get("broken_trades", 0)
+    
+    data_summary = f"Overall Stats:\nExpectancy: {expectancy}R\nWin Rate: {win_rate}%\nProfit Factor: {profit_factor}\n\n"
+    data_summary += f"Discipline Metrics:\nAdherence: {adherence}%\nBroken Trades: {broken_trades}\nCost of breaking rules: {cost}R\n\n"
+    data_summary += "Recent Trades (last 30):\n"
+    for t in reversed(recent):
+        data_summary += f"- Date: {t['date']}, Symbol: {t['symbol']}, Setup: {t['setup']}, R: {t['r']}R, Notes: {t['notes']}\n"
+        
+    prompt = (
+        "You are a ruthless, quantitative trading coach. Review this recent trade data and discipline record. "
+        "Give me 1 paragraph on what I am doing right, 1 paragraph on my fatal flaws/rule-breaking, "
+        "and 3 bullet points of actionable advice for tomorrow. Be direct, use numbers, no fluff.\n\n"
+        f"{data_summary}"
+    )
+    
+    async def stream_response():
+        import httpx
+        import json
+        try:
+            async with httpx.AsyncClient() as client:
+                async with client.stream("POST", "http://localhost:11434/api/generate", json={"model": "qwen3:8b", "prompt": prompt}) as r:
+                    async for line in r.aiter_lines():
+                        if line:
+                            try:
+                                data = json.loads(line)
+                                if "response" in data:
+                                    yield data["response"]
+                            except Exception:
+                                pass
+        except Exception as e:
+            yield f"\n\n[Error communicating with local LLM: {str(e)}]"
+
+    return StreamingResponse(stream_response(), media_type="text/plain")
 
 
 @app.get("/api/stats")
