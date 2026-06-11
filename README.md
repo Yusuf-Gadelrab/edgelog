@@ -33,3 +33,7 @@ uv run pytest tests/
 ```
 
 Not financial advice. Analytics on your own executed trades only.
+
+## License
+© 2026 Yusuf Gadelrab. All rights reserved. Source is public for portfolio and evaluation
+purposes only: no license is granted to copy, modify, or redistribute this code.
