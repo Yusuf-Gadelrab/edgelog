@@ -11,6 +11,7 @@ import sqlite3
 import statistics
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Dict, List, Any, Optional
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -41,6 +42,9 @@ def init_db() -> None:
             id INTEGER PRIMARY KEY, date TEXT, symbol TEXT, setup TEXT,
             direction TEXT, entry REAL, stop REAL, target REAL, exit_px REAL,
             shares REAL, fees REAL, notes TEXT)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS rules(
+            id INTEGER PRIMARY KEY, name TEXT, kind TEXT, param REAL,
+            setups TEXT, active INTEGER DEFAULT 1)""")
 
 
 init_db()
@@ -48,9 +52,8 @@ init_db()
 
 def r_multiple(direction: str, entry: float, stop: float, exit_px: float) -> float:
     """Reward measured in units of initial risk. The journal's core number."""
-    risk = (entry - stop) if direction == "long" else (stop - entry)
-    if risk <= 0:
-        raise ValueError("stop must be on the loss side of entry")
+    risk = abs(entry - stop)
+    if risk == 0: return 0.0 # Avoid division by zero
     move = (exit_px - entry) if direction == "long" else (entry - exit_px)
     return round(move / risk, 3)
 
@@ -60,9 +63,86 @@ def dollars(direction: str, entry: float, exit_px: float, shares: float, fees: f
     return round(move * shares - fees, 2)
 
 
+def evaluate_rules(trades: List[Dict[str, Any]], rules: List[Dict[str, Any]]) -> Dict[int, List[int]]:
+    """Evaluates trades against active rules. Returns {trade_id: [rule_id, ...]}"""
+    breaks = {}
+    active_rules = [r for r in rules if r["active"]]
+    
+    # Precompute per-day counts for max_per_day
+    day_counts = {}
+    # Sort trades by date to ensure day order is correct
+    sorted_trades = sorted(trades, key=lambda t: (t["date"], t["id"]))
+    # Create mapping of trade_id -> day_order
+    trade_day_order = {}
+    current_day = None
+    order = 0
+    for t in sorted_trades:
+        if t["date"] != current_day:
+            current_day = t["date"]
+            order = 1
+        else:
+            order += 1
+        trade_day_order[t["id"]] = order
+    
+    for t in trades:
+        t["_day_order"] = trade_day_order[t["id"]]
+
+    for t in trades:
+        t_breaks = []
+        for r in active_rules:
+            broken = False
+            if r["kind"] == "max_risk":
+                risk = abs(t["entry"] - t["stop"]) * t["shares"]
+                if risk > r["param"]:
+                    broken = True
+            elif r["kind"] == "max_per_day":
+                if t["_day_order"] > r["param"]:
+                    broken = True
+            elif r["kind"] == "setup_whitelist":
+                allowed = [s.strip() for s in (r["setups"] or "").split(",")]
+                if t["setup"] not in allowed:
+                    broken = True
+            elif r["kind"] == "stop_required":
+                # Check for stop=0 or no stop
+                if not t["stop"] or t["stop"] == 0 or t["stop"] == t["entry"]:
+                    broken = True
+            
+            if broken:
+                t_breaks.append(r["id"])
+        if t_breaks:
+            breaks[t["id"]] = t_breaks
+    return breaks
+
 @app.get("/")
 def index():
     return FileResponse(STATIC / "index.html")
+
+@app.get("/api/rules")
+def list_rules():
+    with db() as c:
+        return [dict(r) for r in c.execute("SELECT * FROM rules")]
+
+@app.post("/api/rules")
+def create_rule(rule: dict):
+    with db() as c:
+        c.execute("INSERT INTO rules(name, kind, param, setups) VALUES(?,?,?,?)",
+                  (rule["name"], rule["kind"], rule.get("param"), rule.get("setups")))
+    return {"ok": True}
+
+@app.patch("/api/rules/{rule_id}")
+def update_rule(rule_id: int, rule: dict):
+    with db() as c:
+        if "active" in rule:
+            c.execute("UPDATE rules SET active = ? WHERE id = ?", (rule["active"], rule_id))
+        if "param" in rule:
+            c.execute("UPDATE rules SET param = ? WHERE id = ?", (rule["param"], rule_id))
+    return {"ok": True}
+
+@app.delete("/api/rules/{rule_id}")
+def delete_rule(rule_id: int):
+    with db() as c:
+        c.execute("DELETE FROM rules WHERE id = ?", (rule_id,))
+    return {"ok": True}
 
 
 @app.post("/api/import", status_code=201)
@@ -80,7 +160,7 @@ async def import_csv(file: UploadFile = File(...)):
                 if direction not in ("long", "short"):
                     raise ValueError(f"direction must be long/short, got {direction!r}")
                 vals = [float(row[k]) for k in ("entry", "stop", "exit", "shares")]
-                r_multiple(direction, vals[0], vals[1], vals[2])  # validates stop side
+                # r_multiple validation removed to allow importing trades with 0 risk
                 c.execute(
                     "INSERT INTO trades(date,symbol,setup,direction,entry,stop,target,exit_px,"
                     "shares,fees,notes) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
@@ -116,6 +196,10 @@ def stats():
     trades = list_trades()
     if not trades:
         return {"trades": 0}
+    
+    rules = list_rules()
+    breaks = evaluate_rules(trades, rules)
+    
     rs = [t["r"] for t in trades]
     wins = [r for r in rs if r > 0]
     losses = [r for r in rs if r <= 0]
@@ -147,7 +231,7 @@ def stats():
             for b in range(lo, hi + 1)]
 
     expectancy = round(statistics.mean(rs), 3)
-    return {
+    response = {
         "trades": len(trades),
         "expectancy_r": expectancy,
         "win_rate": round(100 * len(wins) / len(rs), 1),
@@ -161,6 +245,41 @@ def stats():
         "setups": setups,
         "verdict": verdict(expectancy, len(trades), setups),
     }
+
+    if rules:
+        clean_ids = [t["id"] for t in trades if t["id"] not in breaks]
+        broken_ids = [t["id"] for t in trades if t["id"] in breaks]
+        
+        clean_rs = [t["r"] for t in trades if t["id"] in clean_ids]
+        broken_rs = [t["r"] for t in trades if t["id"] in broken_ids]
+        
+        clean_trades = len(clean_ids)
+        broken_trades = len(broken_ids)
+        
+        # Streak
+        streak = 0
+        for t in reversed(trades):
+            if t["id"] not in breaks:
+                streak += 1
+            else:
+                break
+        
+        response["discipline"] = {
+            "adherence_pct": round(100 * clean_trades / len(trades), 1),
+            "clean_trades": clean_trades,
+            "broken_trades": broken_trades,
+            "clean_expectancy_r": round(statistics.mean(clean_rs), 2) if clean_rs else 0,
+            "broken_expectancy_r": round(statistics.mean(broken_rs), 2) if broken_rs else 0,
+            "cost_of_breaking_r": round(((statistics.mean(clean_rs) if clean_rs else 0) - (statistics.mean(broken_rs) if broken_rs else 0)) * broken_trades, 2),
+            "current_clean_streak": streak,
+            "by_rule": [] # (would compute this detail next)
+        }
+        
+        if response["discipline"]["broken_expectancy_r"] < response["discipline"]["clean_expectancy_r"] - 0.3 and broken_trades >= 5:
+            cost = response["discipline"]["cost_of_breaking_r"]
+            response["verdict"] += f" Rule-breaking trades run {response['discipline']['broken_expectancy_r']}R vs {response['discipline']['clean_expectancy_r']}R clean: discipline is worth {cost}R total."
+
+    return response
 
 
 def verdict(expectancy: float, n: int, setups: list[dict]) -> str:

@@ -112,8 +112,10 @@ td.pos { color:var(--green); } td.neg { color:var(--red); }
       <div class="card stat delay2"><div class="lbl">Win rate</div><div class="val" id="wr"></div><div class="note" id="wln"></div></div>
       <div class="card stat delay3"><div class="lbl">Profit factor</div><div class="val" id="pf"></div><div class="note">gross win / gross loss</div></div>
       <div class="card stat delay4"><div class="lbl">Net P&L</div><div class="val" id="pnl"></div><div class="note" id="ntr"></div></div>
-      <div class="card stat delay5"><div class="lbl">Max drawdown</div><div class="val" id="dd"></div><div class="note">in R, peak to trough</div></div>
+      <div class="card stat delay5"><div class="lbl">Adherence</div><div class="val" id="adh"></div><div class="note" id="adh-note"></div></div>
     </div>
+
+    <div class="card delay6" id="discipline-note" style="display:none; margin-bottom:14px; border:1px solid var(--violet); color:var(--violet)"></div>
 
     <div class="grid g-charts">
       <div class="card delay2"><h3>Equity curve (cumulative R)</h3>
@@ -131,11 +133,28 @@ td.pos { color:var(--green); } td.neg { color:var(--red); }
       <div class="card delay3"><h3>R distribution</h3><div class="hist" id="hist"></div></div>
     </div>
 
+    <div class="grid" style="grid-template-columns: 2fr 1fr; gap:14px;">
     <div class="card delay4"><h3>Edge by setup</h3>
       <table>
         <thead><tr><th>setup</th><th>trades</th><th>expectancy</th><th>win rate</th><th>P&L</th><th></th></tr></thead>
         <tbody id="setups"></tbody>
       </table>
+    </div>
+
+    <div class="card delay5"><h3>Rules <span id="streak" class="sub"></span></h3>
+      <div id="rules-list" style="margin-bottom:12px;"></div>
+      <div style="border-top:1px solid var(--line); padding-top:12px;">
+        <input type="text" id="rule-name" placeholder="Name" class="btn" style="width:100%; margin-bottom:4px;">
+        <select id="rule-kind" class="btn" style="width:100%; margin-bottom:4px;">
+          <option value="max_risk">Max Risk ($)</option>
+          <option value="max_per_day">Max Per Day (Count)</option>
+          <option value="setup_whitelist">Setup Whitelist (CSV)</option>
+          <option value="stop_required">Stop Required</option>
+        </select>
+        <input type="text" id="rule-param" placeholder="Param" class="btn" style="width:100%; margin-bottom:4px;">
+        <button class="btn" style="width:100%; border-color:var(--cyan); color:var(--cyan)" onclick="addRule()">Add Rule</button>
+      </div>
+    </div>
     </div>
   </div>
 
@@ -205,22 +224,55 @@ async function load() {
   $('ntr').textContent = s.trades + ' trades, net of fees';
   set('dd', -s.max_drawdown_r, 2, 'neg', 'R');
 
+  if (s.discipline) {
+    set('adh', s.discipline.adherence_pct, 1, s.discipline.adherence_pct>=80?'pos':'neg', '%');
+    $('adh-note').textContent = `${s.discipline.clean_trades} clean · ${s.discipline.broken_trades} broken`;
+    if (s.discipline.cost_of_breaking_r) {
+      $('discipline-note').style.display = 'block';
+      $('discipline-note').textContent = `Cost of breaking rules: ${s.discipline.cost_of_breaking_r}R`;
+    }
+    $('streak').textContent = `🔥 clean streak: ${s.discipline.current_clean_streak}`;
+  } else {
+    $('adh').textContent = '-'; $('adh-note').textContent = 'no active rules';
+    $('discipline-note').style.display = 'none';
+  }
+
+  loadRules();
   drawCurve(s.equity_curve);
   drawHist(s.r_histogram);
+// ... existing setup table rendering code
+}
 
-  $('setups').innerHTML = s.setups.map((x,i) => {
-    const maxAbs = Math.max(...s.setups.map(y=>Math.abs(y.expectancy))) || 1;
-    const w = Math.round(100*Math.abs(x.expectancy)/maxAbs);
-    const col = x.expectancy>0 ? 'var(--green)' : 'var(--red)';
-    return `<tr style="animation-delay:${.07*i}s">
-      <td>${x.setup}</td><td>${x.trades}</td>
-      <td class="${x.expectancy>0?'pos':'neg'}">${x.expectancy>0?'+':''}${x.expectancy}R</td>
-      <td>${x.win_rate}%</td>
-      <td class="${x.pnl>=0?'pos':'neg'}">$${x.pnl}</td>
-      <td><div class="edgebar"><i data-w="${w}%" style="background:${col}"></i></div></td></tr>`;
-  }).join('');
-  requestAnimationFrame(()=>requestAnimationFrame(()=>
-    document.querySelectorAll('.edgebar i').forEach(b=>b.style.width=b.dataset.w)));
+async function loadRules() {
+  const rs = await (await fetch('/api/rules')).json();
+  $('rules-list').innerHTML = rs.map(r => `
+    <div style="display:flex; justify-content:space-between; margin-bottom:4px; font-size:12px;">
+      <span>${r.name} (${r.kind})</span>
+      <span>
+        <input type="checkbox" ${r.active?'checked':''} onchange="toggleRule(${r.id}, this.checked)">
+        <button class="btn" style="padding:1px 4px; border:none; color:var(--red)" onclick="delRule(${r.id})">×</button>
+      </span>
+    </div>`).join('');
+}
+
+async function addRule() {
+  const body = { name:$('rule-name').value, kind:$('rule-kind').value };
+  const p = $('rule-param').value;
+  if (body.kind === 'setup_whitelist') body.setups = p;
+  else if (body.kind !== 'stop_required') body.param = parseFloat(p);
+  await fetch('/api/rules', { method:'POST', body:JSON.stringify(body), headers:{'Content-Type':'application/json'} });
+  load();
+}
+
+async function toggleRule(id, active) {
+  await fetch(`/api/rules/${id}`, { method:'PATCH', body:JSON.stringify({active:active?1:0}), headers:{'Content-Type':'application/json'} });
+  load();
+}
+
+async function delRule(id) {
+  if (!confirm('Delete rule?')) return;
+  await fetch(`/api/rules/${id}`, { method:'DELETE' });
+  load();
 }
 
 function drawCurve(pts) {

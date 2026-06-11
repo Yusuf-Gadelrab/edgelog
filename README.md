@@ -21,7 +21,8 @@ date,symbol,setup,direction,entry,stop,target,exit,shares,fees,notes
 - **Profit factor:** gross wins / gross losses
 - **Max drawdown in R:** peak-to-trough on the cumulative R curve
 - **Edge by setup:** expectancy, win rate, and P&L per setup so you can cut what's bleeding
-- **The verdict:** a generated plain-English read of the whole journal
+- **Discipline tracking:** adherence metrics, rule-breaking costs (in R), and clean-trade streaks.
+- **The verdict:** a generated plain-English read of the whole journal, including discipline impact.
 
 ## Stack
 FastAPI + SQLite + a single-file vanilla JS dashboard (SVG equity curve, no chart library).
