@@ -52,6 +52,11 @@ init_db()
 
 def r_multiple(direction: str, entry: float, stop: float, exit_px: float) -> float:
     """Reward measured in units of initial risk. The journal's core number."""
+    if direction == "long" and stop > entry:
+        raise ValueError("Long stop must be <= entry")
+    if direction == "short" and stop < entry:
+        raise ValueError("Short stop must be >= entry")
+        
     risk = abs(entry - stop)
     if risk == 0: return 0.0 # Avoid division by zero
     move = (exit_px - entry) if direction == "long" else (entry - exit_px)
@@ -160,7 +165,7 @@ async def import_csv(file: UploadFile = File(...)):
                 if direction not in ("long", "short"):
                     raise ValueError(f"direction must be long/short, got {direction!r}")
                 vals = [float(row[k]) for k in ("entry", "stop", "exit", "shares")]
-                # r_multiple validation removed to allow importing trades with 0 risk
+                r_multiple(direction, vals[0], vals[1], vals[2])
                 c.execute(
                     "INSERT INTO trades(date,symbol,setup,direction,entry,stop,target,exit_px,"
                     "shares,fees,notes) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
@@ -215,14 +220,17 @@ def stats():
 
     by_setup = {}
     for t in trades:
-        s = by_setup.setdefault(t["setup"], {"trades": 0, "rs": [], "pnl": 0.0})
+        s = by_setup.setdefault(t["setup"], {"trades": 0, "rs": [], "pnl": 0.0, "breaks": 0})
         s["trades"] += 1
         s["rs"].append(t["r"])
         s["pnl"] = round(s["pnl"] + t["pnl"], 2)
+        if rules and t["id"] in breaks:
+            s["breaks"] += 1
     setups = [{"setup": k, "trades": v["trades"],
                "expectancy": round(statistics.mean(v["rs"]), 3),
                "win_rate": round(100 * sum(1 for r in v["rs"] if r > 0) / v["trades"], 1),
-               "pnl": v["pnl"]}
+               "pnl": v["pnl"],
+               "breaks": v["breaks"]}
               for k, v in by_setup.items()]
     setups.sort(key=lambda s: s["expectancy"], reverse=True)
 
@@ -264,6 +272,18 @@ def stats():
             else:
                 break
         
+        active_rules = [r for r in rules if r["active"]]
+        by_rule = []
+        for r in active_rules:
+            r_broken_ids = [tid for tid, rids in breaks.items() if r["id"] in rids]
+            r_broken_rs = [t["r"] for t in trades if t["id"] in r_broken_ids]
+            if r_broken_ids:
+                by_rule.append({
+                    "rule": r["name"],
+                    "breaks": len(r_broken_ids),
+                    "broken_expectancy_r": round(statistics.mean(r_broken_rs), 2)
+                })
+
         response["discipline"] = {
             "adherence_pct": round(100 * clean_trades / len(trades), 1),
             "clean_trades": clean_trades,
@@ -272,7 +292,7 @@ def stats():
             "broken_expectancy_r": round(statistics.mean(broken_rs), 2) if broken_rs else 0,
             "cost_of_breaking_r": round(((statistics.mean(clean_rs) if clean_rs else 0) - (statistics.mean(broken_rs) if broken_rs else 0)) * broken_trades, 2),
             "current_clean_streak": streak,
-            "by_rule": [] # (would compute this detail next)
+            "by_rule": by_rule
         }
         
         if response["discipline"]["broken_expectancy_r"] < response["discipline"]["clean_expectancy_r"] - 0.3 and broken_trades >= 5:

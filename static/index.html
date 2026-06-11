@@ -143,15 +143,21 @@ td.pos { color:var(--green); } td.neg { color:var(--red); }
 
     <div class="card delay5"><h3>Rules <span id="streak" class="sub"></span></h3>
       <div id="rules-list" style="margin-bottom:12px;"></div>
-      <div style="border-top:1px solid var(--line); padding-top:12px;">
+  <div style="border-top:1px solid var(--line); padding-top:12px;">
         <input type="text" id="rule-name" placeholder="Name" class="btn" style="width:100%; margin-bottom:4px;">
-        <select id="rule-kind" class="btn" style="width:100%; margin-bottom:4px;">
+        <select id="rule-kind" class="btn" style="width:100%; margin-bottom:4px;" onchange="
+          const p = document.getElementById('rule-param');
+          if (this.value === 'max_risk') p.placeholder = 'Max Risk ($)';
+          else if (this.value === 'max_per_day') p.placeholder = 'Max Count';
+          else if (this.value === 'setup_whitelist') p.placeholder = 'Setups (CSV)';
+          p.style.display = this.value === 'stop_required' ? 'none' : 'block';
+        ">
           <option value="max_risk">Max Risk ($)</option>
           <option value="max_per_day">Max Per Day (Count)</option>
           <option value="setup_whitelist">Setup Whitelist (CSV)</option>
           <option value="stop_required">Stop Required</option>
         </select>
-        <input type="text" id="rule-param" placeholder="Param" class="btn" style="width:100%; margin-bottom:4px;">
+        <input type="text" id="rule-param" placeholder="Max Risk ($)" class="btn" style="width:100%; margin-bottom:4px;">
         <button class="btn" style="width:100%; border-color:var(--cyan); color:var(--cyan)" onclick="addRule()">Add Rule</button>
       </div>
     </div>
@@ -237,22 +243,43 @@ async function load() {
     $('discipline-note').style.display = 'none';
   }
 
-  loadRules();
+  loadRules(s.discipline);
   drawCurve(s.equity_curve);
   drawHist(s.r_histogram);
-// ... existing setup table rendering code
+  $('setups').innerHTML = s.setups.map((x,i) => {
+    const maxAbs = Math.max(...s.setups.map(y=>Math.abs(y.expectancy))) || 1;
+    const w = Math.round(100*Math.abs(x.expectancy)/maxAbs);
+    const col = x.expectancy>0 ? 'var(--green)' : 'var(--red)';
+    const badge = x.breaks ? ` <span style="color:var(--red); font-size:10px" title="${x.breaks} rules broken">⚠</span>` : '';
+    return `<tr style="animation-delay:${.07*i}s">
+      <td>${x.setup}${badge}</td><td>${x.trades}</td>
+      <td class="${x.expectancy>0?'pos':'neg'}">${x.expectancy>0?'+':''}${x.expectancy}R</td>
+      <td>${x.win_rate}%</td>
+      <td class="${x.pnl>=0?'pos':'neg'}">$${x.pnl}</td>
+      <td><div class="edgebar"><i data-w="${w}%" style="background:${col}"></i></div></td></tr>`;
+  }).join('');
+  requestAnimationFrame(()=>requestAnimationFrame(()=>
+    document.querySelectorAll('.edgebar i').forEach(b=>b.style.width=b.dataset.w)));
 }
 
-async function loadRules() {
+async function loadRules(discipline) {
   const rs = await (await fetch('/api/rules')).json();
-  $('rules-list').innerHTML = rs.map(r => `
+  $('rules-list').innerHTML = rs.map(r => {
+    let breaks = 0;
+    if (discipline && discipline.by_rule) {
+      const stats = discipline.by_rule.find(b => b.rule === r.name);
+      if (stats) breaks = stats.breaks;
+    }
+    const breakBadge = breaks ? `<span style="color:var(--red); margin-left:6px; font-size:10px" title="${breaks} breaks">⚠ ${breaks}</span>` : '';
+    return `
     <div style="display:flex; justify-content:space-between; margin-bottom:4px; font-size:12px;">
-      <span>${r.name} (${r.kind})</span>
+      <span>${r.name} <span class="sub">(${r.kind})</span>${breakBadge}</span>
       <span>
         <input type="checkbox" ${r.active?'checked':''} onchange="toggleRule(${r.id}, this.checked)">
         <button class="btn" style="padding:1px 4px; border:none; color:var(--red)" onclick="delRule(${r.id})">×</button>
       </span>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 async function addRule() {
