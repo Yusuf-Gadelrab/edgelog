@@ -64,6 +64,10 @@ svg text { font:10px ui-monospace, Menlo, monospace; fill:var(--dim); }
 .hbar.neg i { background:linear-gradient(180deg,var(--red),#99312b); }
 .hbar span { font-size:10px; color:var(--dim); }
 
+.heatmap { display:grid; grid-template-rows:repeat(7, 13px); grid-auto-flow:column; grid-auto-columns:13px; gap:4px; overflow-x:auto; padding-bottom:8px; }
+.heat-day { width:13px; height:13px; border-radius:2px; background:var(--line); transition:transform .1s; }
+.heat-day:hover { transform:scale(1.2); box-shadow:0 0 8px rgba(0,0,0,.5); z-index:2; position:relative; }
+
 table { width:100%; border-collapse:collapse; font-size:13px; }
 th { text-align:left; color:var(--dim); font-size:10px; text-transform:uppercase;
   letter-spacing:.12em; padding:6px 8px; border-bottom:1px solid var(--line); }
@@ -95,7 +99,10 @@ td.pos { color:var(--green); } td.neg { color:var(--red); }
   <header>
     <h1>edge<b>log</b><span class="cursor"></span></h1>
     <div class="sub">your edge as a number, not a vibe</div>
-    <div style="margin-left:auto"><button class="btn" onclick="resetAll()">wipe data</button></div>
+    <div style="margin-left:auto">
+      <a class="btn" href="/api/export.csv" style="text-decoration:none; margin-right:8px;">export csv</a>
+      <button class="btn" onclick="resetAll()">wipe data</button>
+    </div>
   </header>
 
   <div id="drop">
@@ -131,6 +138,10 @@ td.pos { color:var(--green); } td.neg { color:var(--red); }
         </svg>
       </div>
       <div class="card delay3"><h3>R distribution</h3><div class="hist" id="hist"></div></div>
+    </div>
+
+    <div class="card delay3" style="margin-bottom:14px"><h3>Daily P&L</h3>
+      <div id="heatmap" class="heatmap"></div>
     </div>
 
     <div class="grid" style="grid-template-columns: 2fr 1fr; gap:14px;">
@@ -246,6 +257,7 @@ async function load() {
   loadRules(s.discipline);
   drawCurve(s.equity_curve);
   drawHist(s.r_histogram);
+  drawHeatmap(s.daily);
   $('setups').innerHTML = s.setups.map((x,i) => {
     const maxAbs = Math.max(...s.setups.map(y=>Math.abs(y.expectancy))) || 1;
     const w = Math.round(100*Math.abs(x.expectancy)/maxAbs);
@@ -341,6 +353,47 @@ function drawHist(hist) {
   }).join('');
   requestAnimationFrame(()=>requestAnimationFrame(()=>
     document.querySelectorAll('.hbar i').forEach(b=>b.style.height=b.dataset.h)));
+}
+
+function drawHeatmap(daily) {
+  const hm = $('heatmap');
+  hm.innerHTML = '';
+  if (!daily || !daily.length) return;
+  const lastDate = new Date(daily[daily.length - 1].date);
+  const end = new Date(lastDate);
+  end.setUTCDate(end.getUTCDate() + (6 - end.getUTCDay())); // end on Saturday
+  const start = new Date(end);
+  start.setUTCDate(start.getUTCDate() - 181); // 26 weeks
+  
+  const daysMap = {};
+  for (const d of daily) daysMap[d.date] = d;
+
+  const html = [];
+  let cur = new Date(start);
+  while (cur <= end) {
+    const dStr = cur.toISOString().split('T')[0];
+    const d = daysMap[dStr];
+    if (d) {
+      let bg = 'var(--line)';
+      if (d.r > 0) {
+        const intensity = Math.min(1, 0.3 + (d.r / 5));
+        bg = `rgba(52, 211, 153, ${intensity})`;
+      } else if (d.r < 0) {
+        const intensity = Math.min(1, 0.3 + (-d.r / 5));
+        bg = `rgba(248, 113, 113, ${intensity})`;
+      } else if (d.trades > 0) {
+        bg = 'var(--dim)';
+      }
+      const sign = d.r > 0 ? '+' : '';
+      const title = `${d.date} · ${sign}${d.r.toFixed(1)}R · ${d.trades} trades`;
+      html.push(`<div class="heat-day" style="background:${bg}" title="${title}"></div>`);
+    } else {
+      const title = `${dStr} · 0 trades`;
+      html.push(`<div class="heat-day" title="${title}"></div>`);
+    }
+    cur.setUTCDate(cur.getUTCDate() + 1);
+  }
+  hm.innerHTML = html.join('');
 }
 
 load();

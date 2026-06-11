@@ -13,8 +13,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse, StreamingResponse
 
 DB_PATH = Path(__file__).parent / "edgelog.db"
 STATIC = Path(__file__).parent / "static"
@@ -195,6 +195,23 @@ def reset():
         c.execute("DELETE FROM trades")
     return {"ok": True}
 
+@app.get("/api/export.csv")
+def export_csv():
+    trades = list_trades()
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=FIELDS)
+    writer.writeheader()
+    for t in trades:
+        row = {f: t.get(f) for f in FIELDS}
+        row["exit"] = t.get("exit_px")
+        writer.writerow(row)
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=edgelog_export.csv"}
+    )
+
 
 @app.get("/api/stats")
 def stats():
@@ -238,6 +255,14 @@ def stats():
     hist = [{"bucket": f"{b}R", "count": sum(1 for r in rs if b <= r < b + 1)}
             for b in range(lo, hi + 1)]
 
+    daily_stats = {}
+    for t in trades:
+        d = daily_stats.setdefault(t["date"], {"date": t["date"], "r": 0.0, "trades": 0})
+        d["trades"] += 1
+        d["r"] = round(d["r"] + t["r"], 3)
+    daily = list(daily_stats.values())
+    daily.sort(key=lambda x: x["date"])
+
     expectancy = round(statistics.mean(rs), 3)
     response = {
         "trades": len(trades),
@@ -251,6 +276,7 @@ def stats():
         "equity_curve": curve,
         "r_histogram": hist,
         "setups": setups,
+        "daily": daily,
         "verdict": verdict(expectancy, len(trades), setups),
     }
 

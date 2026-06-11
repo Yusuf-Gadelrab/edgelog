@@ -74,3 +74,31 @@ def test_reset_and_dashboard(tmp_path):
     assert c.delete("/api/trades").json() == {"ok": True}
     assert c.get("/api/stats").json() == {"trades": 0}
     assert c.get("/").status_code == 200
+
+def test_daily_aggregation(tmp_path):
+    c = fresh_client(tmp_path)
+    csv2 = "date,symbol,setup,direction,entry,stop,target,exit,shares,fees,notes\n" \
+           "2026-06-01,SOXL,ORB,long,28.50,27.90,30.00,29.70,100,0,trade1\n" \
+           "2026-06-01,SOXS,fade,short,10.00,10.50,9.00,9.50,100,0,trade2\n"
+    c.post("/api/import", files={"file": ("j.csv", csv2, "text/csv")})
+    s = c.get("/api/stats").json()
+    assert len(s["daily"]) == 1
+    assert s["daily"][0]["date"] == "2026-06-01"
+    assert s["daily"][0]["trades"] == 2
+    assert s["daily"][0]["r"] == 3.0
+
+def test_export_round_trip(tmp_path):
+    c = fresh_client(tmp_path)
+    c.post("/api/import", files={"file": ("journal.csv", CSV, "text/csv")})
+    s1 = c.get("/api/stats").json()
+    
+    export_resp = c.get("/api/export.csv")
+    assert export_resp.status_code == 200
+    
+    # new client & db
+    main.DB_PATH = Path(tmp_path) / "t2.db"
+    main.init_db()
+    c2 = TestClient(main.app)
+    c2.post("/api/import", files={"file": ("exported.csv", export_resp.text, "text/csv")})
+    s2 = c2.get("/api/stats").json()
+    assert s1 == s2
