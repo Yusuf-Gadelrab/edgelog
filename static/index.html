@@ -100,6 +100,7 @@ td.pos { color:var(--green); } td.neg { color:var(--red); }
     <h1>edge<b>log</b><span class="cursor"></span></h1>
     <div class="sub">your edge as a number, not a vibe</div>
     <div style="margin-left:auto">
+      <button class="btn" id="rh-btn" style="color:var(--green); border-color:var(--green); margin-right:8px;" onclick="syncRobinhood()">sync robinhood</button>
       <a class="btn" href="/api/export.csv" style="text-decoration:none; margin-right:8px;">export csv</a>
       <button class="btn" onclick="resetAll()">wipe data</button>
     </div>
@@ -199,6 +200,25 @@ async function upload(f) {
 async function resetAll() {
   if (!confirm('Wipe all imported trades?')) return;
   await fetch('/api/trades', { method:'DELETE' }); load();
+}
+
+async function syncRobinhood() {
+  const btn = $('rh-btn');
+  const og = btn.textContent;
+  btn.textContent = 'syncing...';
+  try {
+    const r = await fetch('/api/sync/robinhood', { method: 'POST' });
+    const j = await r.json();
+    if (!r.ok) {
+      alert(j.detail || 'Sync failed');
+    } else {
+      alert(`Sync complete! ${j.inserted} new trades inserted, ${j.skipped} already synced.`);
+      load();
+    }
+  } catch (e) {
+    alert('Error connecting to sync server.');
+  }
+  btn.textContent = og;
 }
 
 function countUp(el, target, decimals, suffix='', prefix='') {

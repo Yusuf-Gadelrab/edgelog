@@ -212,6 +212,15 @@ def export_csv():
         headers={"Content-Disposition": "attachment; filename=edgelog_export.csv"}
     )
 
+@app.post("/api/sync/robinhood")
+def trigger_robinhood_sync():
+    try:
+        from robinhood_sync import sync_robinhood
+        res = sync_robinhood(interactive=False)
+        return res
+    except Exception as e:
+        raise HTTPException(500, f"Robinhood sync failed: {str(e)}")
+
 
 @app.get("/api/stats")
 def stats():
