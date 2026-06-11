@@ -27,7 +27,10 @@ h1 b { background:linear-gradient(90deg,var(--cyan),var(--violet));
 @keyframes rise { from { opacity:0; transform:translateY(14px); } }
 
 .card { background:linear-gradient(180deg,var(--card2),var(--card)); border:1px solid var(--line);
-  border-radius:14px; padding:18px; animation:rise .5s ease both; }
+  border-radius:14px; padding:18px; animation:rise .5s ease both;
+  transition:transform .25s, border-color .25s, box-shadow .25s; }
+.card.stat:hover { transform:translateY(-3px); border-color:var(--cyan-dim);
+  box-shadow:0 10px 28px rgba(34,211,238,.10); }
 .grid { display:grid; gap:14px; }
 .g-stats { grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); margin-bottom:14px; }
 .g-charts { grid-template-columns:3fr 2fr; margin-bottom:14px; }
@@ -41,6 +44,8 @@ h1 b { background:linear-gradient(90deg,var(--cyan),var(--violet));
 #verdict { border-left:3px solid var(--cyan); margin-bottom:14px; font-size:14px; line-height:1.6; }
 #verdict .lbl { color:var(--cyan); font-size:10px; letter-spacing:.14em; text-transform:uppercase;
   margin-bottom:6px; }
+#verdict-text::after { content:"▋"; color:var(--cyan); animation:blink 1.1s steps(1) infinite; }
+#verdict-text.typed::after { content:""; }
 
 h3 { font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--dim);
   margin-bottom:12px; }
@@ -79,6 +84,10 @@ td.pos { color:var(--green); } td.neg { color:var(--red); }
 .footer-note { color:#3d4859; font-size:11px; margin-top:26px; text-align:center; }
 .delay1{animation-delay:.06s}.delay2{animation-delay:.12s}.delay3{animation-delay:.18s}
 .delay4{animation-delay:.24s}.delay5{animation-delay:.3s}
+@media (prefers-reduced-motion:reduce) {
+  *, *::before, *::after { animation-duration:.01ms !important; animation-iteration-count:1 !important;
+    transition-duration:.01ms !important; }
+}
 </style>
 </head>
 <body>
@@ -165,11 +174,26 @@ function countUp(el, target, decimals, suffix='', prefix='') {
   })(t0);
 }
 
+let typeTimer = null;
+function typeVerdict(text) {
+  const el = $('verdict-text');
+  clearInterval(typeTimer);
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    el.textContent = text; el.classList.add('typed'); return;
+  }
+  el.textContent = ''; el.classList.remove('typed');
+  let i = 0;
+  typeTimer = setInterval(() => {
+    el.textContent = text.slice(0, ++i);
+    if (i >= text.length) { clearInterval(typeTimer); el.classList.add('typed'); }
+  }, 14);
+}
+
 async function load() {
   const s = await (await fetch('/api/stats')).json();
   if (!s.trades) { $('dash').style.display='none'; return; }
   $('dash').style.display='block';
-  $('verdict-text').textContent = s.verdict;
+  typeVerdict(s.verdict);
 
   const set = (id,v,dec,cls,suffix='',prefix='') => { const el=$(id);
     el.className = 'val ' + (cls||''); countUp(el, v, dec, suffix, prefix); };
