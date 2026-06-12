@@ -416,7 +416,7 @@ async function copyWeekly() {
 
 async function load() {
   const s = await (await fetch('/api/stats')).json();
-  if (!s.trades) { $('dash').style.display='none'; return; }
+  if (!s.trades) { toast("No trades yet."); $('dash').style.display='none'; return; }
   $('dash').style.display='block';
   typeVerdict(s.verdict);
 
