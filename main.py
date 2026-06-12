@@ -253,6 +253,21 @@ def api_backtest_run(payload: dict):
         raise HTTPException(500, f"Backtest failed: {str(e)}")
 
 
+@app.get("/api/hermes/interrogate")
+async def api_hermes_interrogate():
+    try:
+        from ai.interrogator import interrogate_trades, log_edge
+        res = await interrogate_trades()
+        
+        # Log market edge if identified
+        edge = res.get("market_edge_identified")
+        if edge and str(edge).lower() != "none":
+            log_edge(str(edge))
+            
+        return res
+    except Exception as e:
+        raise HTTPException(500, f"Hermes failed: {str(e)}")
+
 @app.post("/api/coach")
 async def ai_coach():
     s = stats()
