@@ -92,6 +92,12 @@ td.pos { color:var(--green); } td.neg { color:var(--red); }
   *, *::before, *::after { animation-duration:.01ms !important; animation-iteration-count:1 !important;
     transition-duration:.01ms !important; }
 }
+.heatmap { display:grid; grid-template-columns:repeat(26,1fr); gap:2px; }
+.heat-day { width:10px; height:10px; background:var(--line); border-radius:1px; cursor:pointer; }
+.heat-day.pos { background:var(--green); }
+.heat-day.neg { background:var(--red); }
+.heat-day.neu { background:var(--teal); }
+.heat-day:hover { outline:1px solid #fff; }
 </style>
 </head>
 <body>
@@ -138,6 +144,10 @@ td.pos { color:var(--green); } td.neg { color:var(--red); }
 
     <div class="card delay6" id="discipline-note" style="display:none; margin-bottom:14px; border:1px solid var(--violet); color:var(--violet)"></div>
 
+    <div class="card delay6" style="margin-bottom:14px"><h3>Calendar Heatmap</h3>
+      <div id="heatmap" class="heatmap"></div>
+    </div>
+    
     <div class="card delay6" style="margin-bottom:14px"><h3>Weekly Review</h3>
       <div style="display:flex; gap:8px; margin-bottom:12px;">
         <input type="date" id="week-date" class="btn" style="flex:1">
