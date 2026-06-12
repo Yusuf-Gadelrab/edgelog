@@ -7,6 +7,7 @@ No advice, no signals, no broker credentials — analytics on the user's own his
 
 import csv
 import io
+import os
 import sqlite3
 import statistics
 from contextlib import contextmanager
@@ -204,6 +205,12 @@ def reset():
         c.execute("DELETE FROM trades")
     return {"ok": True}
 
+@app.get("/api/sync/state")
+def get_sync_state():
+    with db() as c:
+        last_sync = c.execute("SELECT MAX(synced_at) FROM trades").fetchone()[0]
+    return {"last_sync": last_sync}
+
 @app.get("/api/export.csv")
 def export_csv():
     trades = list_trades()
@@ -239,6 +246,42 @@ def trigger_alpaca_sync():
         return res
     except Exception as e:
         raise HTTPException(500, f"Alpaca sync failed: {str(e)}")
+
+@app.post("/api/sync/summeros")
+def sync_summeros():
+    journal_path = Path.home() / "SummerOS" / "trading" / "journal.csv"
+    if not journal_path.exists():
+        raise HTTPException(404, f"Journal file not found at {journal_path}")
+        
+    with open(journal_path, "r", encoding="utf-8", errors="replace") as f:
+        reader = csv.DictReader(f)
+        missing = [f for f in FIELDS[:-1] if f not in (reader.fieldnames or [])]
+        if missing:
+            raise HTTPException(422, f"CSV missing columns: {missing} — expected {FIELDS}")
+            
+        inserted, skipped = 0, []
+        with db() as c:
+            # Full sync replaces the DB contents
+            c.execute("DELETE FROM trades")
+            for i, row in enumerate(reader, start=2):
+                try:
+                    direction = row["direction"].strip().lower()
+                    if direction not in ("long", "short"):
+                        raise ValueError(f"direction must be long/short, got {direction!r}")
+                    vals = [float(row[k]) for k in ("entry", "stop", "exit", "shares")]
+                    r_multiple(direction, vals[0], vals[1], vals[2])
+                    c.execute(
+                        "INSERT INTO trades(date,symbol,setup,direction,entry,stop,target,exit_px,"
+                        "shares,fees,notes) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                        (row["date"].strip(), row["symbol"].strip().upper(),
+                         row["setup"].strip() or "untagged", direction,
+                         vals[0], vals[1], float(row.get("target") or 0), vals[2], vals[3],
+                         float(row.get("fees") or 0), (row.get("notes") or "").strip()[:500]))
+                    inserted += 1
+                except (ValueError, KeyError) as e:
+                    skipped.append({"line": i, "error": str(e)})
+                    
+    return {"inserted": inserted, "skipped": len(skipped), "errors": skipped[:5]}
 
 @app.post("/api/backtest/run")
 def api_backtest_run(payload: dict):
