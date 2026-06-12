@@ -198,6 +198,23 @@ def list_trades():
         t["pnl"] = dollars(t["direction"], t["entry"], t["exit_px"], t["shares"], t["fees"])
     return rows
 
+@app.get("/api/export.csv")
+def export_csv():
+    trades = list_trades()
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=FIELDS)
+    writer.writeheader()
+    for t in trades:
+        row = {f: t.get(f) for f in FIELDS}
+        row["exit"] = t.get("exit_px")
+        writer.writerow(row)
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=edgelog_export.csv"}
+    )
+
 
 @app.delete("/api/trades")
 def reset():
