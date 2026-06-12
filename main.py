@@ -434,6 +434,51 @@ def stats():
     return response
 
 
+@app.get("/api/report/weekly")
+def weekly_report(week: str = None):
+    # Default to current ISO week start (Monday)
+    if not week:
+        today = datetime.now()
+        start = today - timedelta(days=today.weekday())
+    else:
+        start = datetime.strptime(week, "%Y-%m-%d")
+    end = start + timedelta(days=6)
+    
+    trades = list_trades()
+    week_trades = [t for t in trades if start <= datetime.strptime(t["date"], "%Y-%m-%d") <= end]
+    
+    net_r = sum(t["r"] for t in week_trades)
+    expectancy = round(statistics.mean([t["r"] for t in week_trades]), 3) if week_trades else 0
+    adherence = round(100 * len([t for t in week_trades if t["id"] not in evaluate_rules(week_trades, list_rules())]) / len(week_trades), 1) if week_trades else 0
+    
+    best = sorted(week_trades, key=lambda t: t["r"], reverse=True)[0] if week_trades else None
+    worst = sorted(week_trades, key=lambda t: t["r"])[0] if week_trades else None
+    
+    markdown = f"## Weekly Review ({start.date()} to {end.date()})\n"
+    markdown += f"- Total Trades: {len(week_trades)}\n"
+    markdown += f"- Net R: {round(net_r, 2)}R\n"
+    markdown += f"- Expectancy: {expectancy}R\n"
+    markdown += f"- Adherence: {adherence}%\n"
+    if best: markdown += f"- Best: {best['symbol']} ({best['r']}R)\n"
+    if worst: markdown += f"- Worst: {worst['symbol']} ({worst['r']}R)\n"
+    markdown += "\n---\n*Which rule would have saved the most R this week?*"
+    
+    return {
+        "week_start": start.strftime("%Y-%m-%d"),
+        "week_end": end.strftime("%Y-%m-%d"),
+        "trades": len(week_trades),
+        "net_r": round(net_r, 2),
+        "expectancy_r": expectancy,
+        "adherence_pct": adherence,
+        "best_setup": {"name": best["setup"], "r": best["r"]} if best else None,
+        "worst_setup": {"name": worst["setup"], "r": worst["r"]} if worst else None,
+        "biggest_win_r": best["r"] if best else 0,
+        "biggest_loss_r": worst["r"] if worst else 0,
+        "clean_streak": 0, # Placeholder
+        "markdown": markdown
+    }
+
+
 def verdict(expectancy: float, n: int, setups: list[dict]) -> str:
     if n < 20:
         return (f"Only {n} trades logged — your numbers aren't statistically meaningful yet. "

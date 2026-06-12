@@ -136,6 +136,15 @@ td.pos { color:var(--green); } td.neg { color:var(--red); }
 
     <div class="card delay6" id="discipline-note" style="display:none; margin-bottom:14px; border:1px solid var(--violet); color:var(--violet)"></div>
 
+    <div class="card delay6" style="margin-bottom:14px"><h3>Weekly Review</h3>
+      <div style="display:flex; gap:8px; margin-bottom:12px;">
+        <input type="date" id="week-date" class="btn" style="flex:1">
+        <button class="btn" onclick="loadWeekly()">Load</button>
+        <button class="btn" onclick="copyWeekly()" style="color:var(--cyan); border-color:var(--cyan)">Copy MD</button>
+      </div>
+      <div id="weekly-markdown" style="font-size:13px; white-space:pre-wrap; color:var(--dim)"></div>
+    </div>
+
     <div class="grid g-charts">
       <div class="card delay2"><h3>Equity curve (cumulative R)</h3>
         <svg id="curve" viewBox="0 0 600 190" preserveAspectRatio="none" width="100%" height="190">
@@ -291,6 +300,20 @@ async function runAiReview() {
     btn.innerHTML = originalText;
     btn.disabled = false;
   }
+}
+
+async function loadWeekly() {
+  const d = $('week-date').value;
+  const url = d ? `/api/report/weekly?week=${d}` : '/api/report/weekly';
+  const r = await (await fetch(url)).json();
+  $('weekly-markdown').textContent = r.markdown;
+}
+
+async function copyWeekly() {
+  const text = $('weekly-markdown').textContent;
+  if (!text) return;
+  await navigator.clipboard.writeText(text);
+  toast('📋 Markdown copied to clipboard!');
 }
 
 async function load() {
