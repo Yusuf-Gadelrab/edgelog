@@ -186,6 +186,7 @@ td.pos { color:var(--green); } td.neg { color:var(--red); }
     </div>
 
     <div class="card delay5"><h3>Rules <span id="streak" class="sub"></span></h3>
+      <div class="dim" id="rules-summary" style="font-size:11px; margin-bottom:8px;"></div>
       <div id="rules-list" style="margin-bottom:12px;"></div>
   <div style="border-top:1px solid var(--line); padding-top:12px;">
         <input type="text" id="rule-name" placeholder="Name" class="btn" style="width:100%; margin-bottom:4px;">
@@ -416,6 +417,7 @@ async function copyWeekly() {
 
 async function load() {
   const s = await (await fetch('/api/stats')).json();
+  const rs = await (await fetch('/api/rules')).json();
   if (!s.trades) { toast("No trades yet."); $('dash').style.display='none'; return; }
   $('dash').style.display='block';
   typeVerdict(s.verdict);
@@ -444,8 +446,20 @@ async function load() {
   }
 
   loadRules(s.discipline);
+  updateRulesSummary(rs);
   drawCurve(s.equity_curve);
   drawHist(s.r_histogram);
+
+// ... (rest of the file) ...
+
+async function loadRules(discipline) {
+  // ... (existing code)
+}
+
+function updateRulesSummary(rules) {
+    const active = rules.filter(r => r.active).length;
+    $('rules-summary').textContent = active ? `${active} active rules tracking discipline` : 'No active rules';
+}
   drawHeatmap(s.daily);
   $('setups').innerHTML = s.setups.map((x,i) => {
     const maxAbs = Math.max(...s.setups.map(y=>Math.abs(y.expectancy))) || 1;

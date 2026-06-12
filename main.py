@@ -6,6 +6,7 @@ No advice, no signals, no broker credentials — analytics on the user's own his
 """
 
 import csv
+from datetime import datetime, timedelta
 import io
 import os
 import sqlite3
@@ -16,7 +17,7 @@ from typing import Dict, List, Any, Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, Response
 
 DB_PATH = Path(__file__).parent / "edgelog.db"
 STATIC = Path(__file__).parent / "static"
@@ -128,7 +129,34 @@ def evaluate_rules(trades: List[Dict[str, Any]], rules: List[Dict[str, Any]]) ->
             breaks[t["id"]] = t_breaks
     return breaks
 
+def generate_svg_card(stats: dict) -> str:
+    # Use existing house colors
+    return f'''
+    <svg width="600" height="315" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#07090b"/>
+          <stop offset="100%" stop-color="#1e293b"/>
+        </linearGradient>
+      </defs>
+      <rect width="600" height="315" fill="url(#g)"/>
+      <text x="50" y="80" font-family="monospace" font-size="24" fill="#22d3ee">EdgeLog Stats</text>
+      <text x="50" y="140" font-family="monospace" font-size="48" fill="#eafff2">Expectancy: {stats.get('expectancy_r', 0)}R</text>
+      <text x="50" y="190" font-family="monospace" font-size="24" fill="#a78bfa">Win Rate: {stats.get('win_rate', 0)}%</text>
+      <text x="50" y="230" font-family="monospace" font-size="24" fill="#3ddc84">Profit Factor: {stats.get('profit_factor', 0) or 0}</text>
+    </svg>
+    '''
+
+def share_card():
+    s = stats() # Recalculate
+    svg = generate_svg_card(s)
+    return Response(content=svg, media_type="image/svg+xml")
+
 app.add_api_route("/api/share/card.svg", share_card, methods=["GET"])
+
+@app.get("/")
+def index():
+    return FileResponse(STATIC / "index.html")
 
 @app.get("/api/rules")
 def list_rules():
@@ -225,23 +253,6 @@ def get_sync_state():
     with db() as c:
         last_sync = c.execute("SELECT MAX(synced_at) FROM trades").fetchone()[0]
     return {"last_sync": last_sync}
-
-@app.get("/api/export.csv")
-def export_csv():
-    trades = list_trades()
-    output = io.StringIO()
-    writer = csv.DictWriter(output, fieldnames=FIELDS)
-    writer.writeheader()
-    for t in trades:
-        row = {f: t.get(f) for f in FIELDS}
-        row["exit"] = t.get("exit_px")
-        writer.writerow(row)
-    output.seek(0)
-    return StreamingResponse(
-        iter([output.getvalue()]),
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=edgelog_export.csv"}
-    )
 
 @app.post("/api/sync/robinhood")
 def trigger_robinhood_sync():
