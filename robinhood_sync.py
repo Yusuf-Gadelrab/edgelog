@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 DB_PATH = Path(__file__).parent / "edgelog.db"
 
-def sync_robinhood(interactive=True):
+def sync_robinhood(interactive=True, default_setup="robinhood", default_stop=0):
     load_dotenv()
     user = os.getenv("RH_USERNAME")
     pw = os.getenv("RH_PASSWORD")
@@ -28,15 +28,28 @@ def sync_robinhood(interactive=True):
         for order in orders:
             if order["state"] != "filled": continue
             
-            # Check for existing sync
+            symbol = r.stocks.get_symbol_by_url(order["instrument"])
+            
+            # Stable dedupe key: date+symbol+side+shares+entry
             rh_id = order["id"]
-            if c.execute("SELECT 1 FROM trades WHERE notes LIKE ?", (f"%RH Order ID: {rh_id}%",)).fetchone():
+            date = order["last_transaction_at"].split('T')[0]
+            side = order["side"]
+            shares = float(order["cumulative_quantity"])
+            entry = float(order["average_price"])
+            
+            # Check for existing sync using the stable key or the RH order ID
+            if c.execute("""SELECT 1 FROM trades 
+                            WHERE date=? AND symbol=? AND direction=? AND shares=? AND entry=? 
+                            OR notes LIKE ?""", 
+                         (date, symbol, side, shares, entry, f"%RH Order ID: {rh_id}%")).fetchone():
                 continue
             
-            symbol = r.stocks.get_symbol_by_url(order["instrument"])
-            # Prompt for setup/stop if missing (simulated as Robinhood data is stopless)
-            setup = input(f"Enter setup for {symbol} ({order['side']}): ") or "robinhood"
-            stop = input(f"Enter stop price for {symbol}: ") or 0
+            # Use defaults if not interactive
+            setup = default_setup
+            stop = default_stop
+            if interactive:
+                setup = input(f"Enter setup for {symbol} ({order['side']}): ") or default_setup
+                stop = input(f"Enter stop price for {symbol}: ") or default_stop
             
             c.execute("""INSERT INTO trades(date, symbol, setup, direction, entry, stop, shares, exit_px, notes) 
                          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",

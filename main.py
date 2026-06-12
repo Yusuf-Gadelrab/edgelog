@@ -75,7 +75,7 @@ def r_multiple(direction: str, entry: float, stop: float, exit_px: float) -> flo
 
 def dollars(direction: str, entry: float, exit_px: float, shares: float, fees: float) -> float:
     move = (exit_px - entry) if direction == "long" else (entry - exit_px)
-    return round(move * shares - fees, 2)
+    return round(move * shares - (fees or 0.0), 2)
 
 
 def evaluate_rules(trades: List[Dict[str, Any]], rules: List[Dict[str, Any]]) -> Dict[int, List[int]]:

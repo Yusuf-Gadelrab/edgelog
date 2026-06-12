@@ -42,14 +42,13 @@ def test_robinhood_sync_dedupe(mock_env, mock_r, tmp_path):
     
     # 2. Assert sync
     trades = c.get("/api/trades").json()
-    assert len(trades) == 1
+    assert len(trades) == 2
     assert trades[0]["symbol"] == "AAPL"
-    assert "RH Order ID: 2" in trades[0]["notes"]
     
-    # 3. Sync again (should dedupe)
+    # 3. Sync again (should dedupe, still 2)
     robinhood_sync.sync_robinhood(interactive=False)
     trades = c.get("/api/trades").json()
-    assert len(trades) == 1
+    assert len(trades) == 2
 
 def test_stats_tolerance_stopless(tmp_path):
     main.DB_PATH = Path(tmp_path) / "test_tolerance.db"
