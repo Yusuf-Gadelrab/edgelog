@@ -128,9 +128,7 @@ def evaluate_rules(trades: List[Dict[str, Any]], rules: List[Dict[str, Any]]) ->
             breaks[t["id"]] = t_breaks
     return breaks
 
-@app.get("/")
-def index():
-    return FileResponse(STATIC / "index.html")
+app.add_api_route("/api/share/card.svg", share_card, methods=["GET"])
 
 @app.get("/api/rules")
 def list_rules():
