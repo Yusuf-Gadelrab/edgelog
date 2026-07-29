@@ -1,8 +1,10 @@
 # EdgeLog 📈
 
-**Your edge as a number, not a vibe.** A trade journal analyzer: import your trades as CSV,
-get your expectancy in R, win rate, profit factor, max drawdown, equity curve, R distribution,
-and a per-setup edge breakdown with a plain-English verdict.
+EdgeLog is a trade journal analyzer that imports your trades as CSV and reports whether you
+actually have an edge: expectancy in R, win rate, profit factor, max drawdown, equity curve,
+R distribution, and a per-setup edge breakdown with a plain-English verdict.
+
+**Your edge as a number, not a vibe.**
 
 Built because most trade journals tell you what you did. This one tells you whether you
 actually have an edge, and which setup is paying for the others.
