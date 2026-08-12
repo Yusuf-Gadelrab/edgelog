@@ -146,7 +146,7 @@ purposes only: no license is granted to copy, modify, or redistribute this code.
 
 ## About the author
 
-Built by **Yusuf Gadelrab** — computer science student at San José State University (BS Computer Science, expected May 2028), AI/ML builder, and co-author of two peer-reviewed SIGCSE Technical Symposium 2026 papers on computer science education ([DOI 10.1145/3770761.3777339](https://doi.org/10.1145/3770761.3777339)).
+Built by **Yusuf Gadelrab** — computer science student at San José State University (BS Computer Science, expected May 2028), and a co-author on the poster "Exploring Bilingual Coding for Inclusive Computer Science Learning" at the ACM SIGCSE Technical Symposium 2026 ([DOI 10.1145/3770761.3777339](https://doi.org/10.1145/3770761.3777339)).
 
 - Portfolio: <https://yusuf-gadelrab.github.io/>
 - About / FAQ: <https://yusuf-gadelrab.github.io/about.html>
